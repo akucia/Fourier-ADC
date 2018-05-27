@@ -243,7 +243,6 @@ func SINAD(dft []complex128, signalIndices []int) float64 {
 
 	signalMagnitude := 0.0
 	for _, idx := range signalIndices {
-		fmt.Println(idx)
 		signalMagnitude += dftMagnitudes[idx]
 	}
 
