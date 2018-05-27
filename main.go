@@ -54,7 +54,7 @@ func plotDFT(data [] complex128, fb float64, db bool, file string) {
 	for i, value := range data {
 		v := cmplx.Abs(value)
 		if db {
-			v = 20 * math.Log10(v+1e-6)
+			v = 20 * math.Log10(math.Max(v, 1e-3))
 		}
 		amplitudes[i] = v
 		frequencies[i] = fb * float64(i)
