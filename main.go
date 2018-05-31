@@ -18,8 +18,6 @@ import (
 	"strings"
 )
 
-var wg sync.WaitGroup
-
 func check(e error) {
 	if e != nil {
 		panic(e)
@@ -76,22 +74,6 @@ func plotDFT(data [] complex128, fb float64, db bool, file string) {
 	fmt.Printf("Plot save in %s\n", file)
 }
 
-func DFT(data []float64, N int) []complex128 {
-	queue := make(chan DFTResult, N/2)
-	dft := make([]complex128, N/2)
-	for k := 0; k < (N/2)-1; k++ {
-		wg.Add(1)
-		go dftValue(queue, data, k, N)
-	}
-	wg.Wait()
-
-	close(queue)
-	for result := range queue {
-		dft[result.k] = result.xk
-	}
-	return dft
-}
-
 type DFTResult struct {
 	k  int
 	xk complex128
@@ -106,6 +88,22 @@ func dftValue(c chan DFTResult, data []float64, k int, N int) {
 		xk += complex(float64(x), 0) * cmplx.Exp(xCmplx)
 	}
 	c <- DFTResult{k, xk}
+}
+
+func DFT(data []float64, N int) []complex128 {
+	queue := make(chan DFTResult, N/2)
+	dft := make([]complex128, N/2)
+	for k := 0; k < (N/2)-1; k++ {
+		wg.Add(1)
+		go dftValue(queue, data, k, N)
+	}
+	wg.Wait()
+
+	close(queue)
+	for result := range queue {
+		dft[result.k] = result.xk
+	}
+	return dft
 }
 
 func loadData(path string) []float64 {
@@ -125,6 +123,8 @@ func loadData(path string) []float64 {
 	return values
 }
 
+// Calculates the indices of the first n harmonic frequencies, taking into account the
+// aliasing effects.
 func aliasedHarmonics(
 	signalFreq float64,
 	baseFreq float64,
@@ -158,8 +158,17 @@ func aliasedHarmonics(
 
 }
 
-// THD (Total Harmonic Distorsion). Jest to stosunek mocy niesionej
-// przez Nh pierwszych harmonicznych do mocy sygnału
+func intInSlice(a int, list []int) bool {
+	for _, b := range list {
+		if b == a {
+			return true
+		}
+	}
+	return false
+}
+
+// THD (Total Harmonic Distorsion). Defined as the ratio of the sum of the powers
+// of harmonic components to the power of the signal frequency.
 func THD(dft []complex128, signalIndices []int, harmonicIndices []int) float64 {
 	dftMagnitudes := convertToMagnitudeSquared(dft)
 	harmonicsMagnitude := 0.0
@@ -177,22 +186,13 @@ func THD(dft []complex128, signalIndices []int, harmonicIndices []int) float64 {
 
 }
 
-func intInSlice(a int, list []int) bool {
-	for _, b := range list {
-		if b == a {
-			return true
-		}
-	}
-	return false
-}
-
-// Stosunek sygnału do szumu nie będącego częstotliwości harmonicznymi
-// wyraża metryka SNHR (Signal to Non-Harmonic Ratio).
+// SNHR (Signal to Non Harmonic Ratio). Defined as the ratio of power of the signal
+// frequency to the sum of the powers of non-harmonic components
 func SNHR(dft []complex128, signalIndices []int, harmonicIndices []int) float64 {
 	dftMagnitudes := convertToMagnitudeSquared(dft)
 	nonHarmonicsMagnitude := 0.0
 	for idx, value := range dftMagnitudes {
-		if !intInSlice(idx, harmonicIndices) && idx > 0 { // skip harmonics
+		if !intInSlice(idx, harmonicIndices) && idx > 0 { // skip harmonics and 0 freq term
 			nonHarmonicsMagnitude += value
 		}
 	}
@@ -206,9 +206,8 @@ func SNHR(dft []complex128, signalIndices []int, harmonicIndices []int) float64 
 
 }
 
-// Zakres wolny od zniekształceń SFDR (Spurious Free Dynamic Range)
-// informuje o odstępie sygnału do największego z zakłóceń (niezależnie czy
-// jest to szum czy częstotliwość harmoniczna).
+// SFDR (Spurious Free Dynamic Range). Defined as the ratio of power of the signal frequency
+// to the power of the of the next largest noise or harmonic distortion.
 func SFDR(dft []complex128, signalIndices []int) float64 {
 	dftMagnitudes := convertToMagnitudeSquared(dft)
 	nonSignalMaxMagnitude := 0.0
@@ -229,9 +228,8 @@ func SFDR(dft []complex128, signalIndices []int) float64 {
 
 }
 
-// SINAD (Signal to Noise And
-// Distorsion). Jest definiowany jako stosunek mocy sygnału do całkowitej mocy
-// szumów i zniekształceń
+// SINAD (Signal to Noise And Distortion). Defined as the ratio of the power of the signal
+// to the total power of the noise and harmonic distortions.
 func SINAD(dft []complex128, signalIndices []int) float64 {
 	dftMagnitudes := convertToMagnitudeSquared(dft)
 	nonSignalMagnitude := 0.0
@@ -250,6 +248,8 @@ func SINAD(dft []complex128, signalIndices []int) float64 {
 
 }
 
+// ENOB (Effective Number Of Bits). ENOB specifies the number of bits of an ideal ADC
+// that would have the same resolution as the tested, real ADC.
 func ENOB(sinad float64) float64 {
 	return (sinad - 1.76) / 6.02
 }
@@ -263,6 +263,8 @@ func convertToMagnitudeSquared(data []complex128) []float64 {
 	}
 	return x
 }
+
+var wg sync.WaitGroup
 
 var (
 	input  = flag.String("input", "", "Input file path.")

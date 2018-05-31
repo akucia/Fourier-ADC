@@ -12,7 +12,7 @@ Usage of ./Fourier-ADC:
   -fsig float
         Original signal frequency.
   -input string
-        Input file path.
+        Signal file path.
 
 ```
 
