@@ -3,6 +3,8 @@ package main
 import (
 	"math"
 	"testing"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const testDataFile = "./data/example_data.csv"
@@ -13,7 +15,10 @@ const signalFreq = 402.34375
 func TestDFT(t *testing.T) {
 	// test setup
 	eps := 1e-6
-	data := loadData(testDataFile)
+	data, err := loadData(testDataFile)
+	if err != nil {
+		log.Fatalf("could not load data from the file %s: err", *input, err)
+	}
 	dft := DFT(data, dftLen)
 	freq := signalFreq
 	baseFreq := samplingFreq / float64(dftLen)

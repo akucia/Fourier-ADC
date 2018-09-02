@@ -12,18 +12,14 @@ import (
 	"sync"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/olekukonko/tablewriter"
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/plotter"
 	"gonum.org/v1/plot/plotutil"
 	"gonum.org/v1/plot/vg"
 )
-
-func check(e error) {
-	if e != nil {
-		panic(e)
-	}
-}
 
 func makeXYPoints(x []float64, y []float64) plotter.XYs {
 	pts := make(plotter.XYs, len(x))
@@ -34,19 +30,21 @@ func makeXYPoints(x []float64, y []float64) plotter.XYs {
 	return pts
 }
 
-func plotXY(x []float64, y []float64) *plot.Plot {
+func plotXY(x []float64, y []float64) (*plot.Plot, error) {
 
 	p, err := plot.New()
-	check(err)
+	if err != nil {
+		return nil, fmt.Errorf("could not create new plot: %v", err)
+	}
 
-	err = plotutil.AddLinePoints(p, makeXYPoints(x, y))
-	check(err)
-
-	return p
+	if err := plotutil.AddLinePoints(p, makeXYPoints(x, y)); err != nil {
+		return nil, fmt.Errorf("could not plot points: %v", err)
+	}
+	return p, nil
 
 }
 
-func plotDFT(data []complex128, fb float64, db bool, file string) {
+func plotDFT(data []complex128, fb float64, db bool, file string) error {
 	amplitudes := make([]float64, len(data))
 	frequencies := make([]float64, len(data))
 
@@ -59,7 +57,10 @@ func plotDFT(data []complex128, fb float64, db bool, file string) {
 		frequencies[i] = fb * float64(i)
 	}
 
-	p := plotXY(frequencies, amplitudes)
+	p, err := plotXY(frequencies, amplitudes)
+	if err != nil {
+		return fmt.Errorf("could not plot frequency amplitudes: %v", err)
+	}
 
 	if db {
 		p.Y.Label.Text = "Magnitude^2 [db]"
@@ -70,9 +71,10 @@ func plotDFT(data []complex128, fb float64, db bool, file string) {
 	p.X.Label.Text = "Frequency [Hz]"
 
 	if err := p.Save(10*vg.Inch, 5*vg.Inch, file); err != nil {
-		panic(err)
+		return fmt.Errorf("could not save plot to file %s: %v", file, err)
 	}
-	fmt.Printf("Plot save in %s\n", file)
+	log.Infof("DFT plot saved in %s\n", file)
+	return nil
 }
 
 type DFTResult struct {
@@ -106,21 +108,28 @@ func DFT(data []float64, N int) []complex128 {
 	return dft
 }
 
-func loadData(path string) []float64 {
-	fmt.Printf("Reading data from %s \n", path)
+func loadData(path string) ([]float64, error) {
+	log.Debugf("Reading data from %s \n", path)
 	file, err := os.Open(path)
-	check(err)
+	if err != nil {
+		return nil, fmt.Errorf("could not open file: %v", err)
+	}
+	defer file.Close()
 	csvReader := csv.NewReader(file)
 	lines, err := csvReader.ReadAll()
-	check(err)
+	if err != nil {
+		return nil, fmt.Errorf("could not read lines from file: %v", err)
+	}
 
 	values := make([]float64, len(lines))
 	for i, value := range lines {
 		values[i], err = strconv.ParseFloat(value[0], 64)
-		check(err)
+		if err != nil {
+			return nil, fmt.Errorf("could not parse line %d in file %s: %v", i, path, err)
+		}
 	}
-	fmt.Printf("Read %d points\n", len(values))
-	return values
+	log.Debugf("Read %d points\n", len(values))
+	return values, nil
 }
 
 // Calculates the indices of the first n harmonic frequencies, taking into account the
@@ -132,9 +141,9 @@ func aliasedHarmonics(
 	nHarmonics int,
 ) []int {
 	mSig := int(signalFreq / baseFreq)
-	fmt.Printf("Signal index: %d\n", mSig)
+	log.Debugf("Signal index: %d\n", mSig)
 	N := int(samplingFreq / baseFreq)
-	fmt.Printf("DFT len : %d\n", N)
+	log.Debugf("DFT len : %d\n", N)
 
 	mh := make([]int, nHarmonics)
 	for i := 0; i < nHarmonics; i++ {
@@ -147,13 +156,13 @@ func aliasedHarmonics(
 			mh[i] = N - m
 		}
 	}
-	fmt.Printf("Aliased harmonics indices %v\n", mh)
+	log.Debugf("Aliased harmonics indices %v\n", mh)
 	aliasedHarmonicFrequencies := make([]float64, len(mh))
 	for i, value := range mh {
 		aliasedHarmonicFrequencies[i] = baseFreq * float64(value)
 	}
 
-	fmt.Printf("Aliased harmonics freqs %.3g\n", aliasedHarmonicFrequencies)
+	log.Debugf("Aliased harmonics freqs %.3g\n", aliasedHarmonicFrequencies)
 	return mh
 
 }
@@ -267,17 +276,28 @@ func convertToMagnitudeSquared(data []complex128) []float64 {
 var wg sync.WaitGroup
 
 var (
-	input  = flag.String("input", "", "Input file path.")
-	fsig   = flag.Float64("fsig", 0.0, "Original signal frequency.")
-	fsam   = flag.Float64("fsam", 0.0, "Sampling frequency.")
-	dftlen = flag.Int("dftlen", 1024, "Length of the DFT.")
+	input    = flag.String("input", "", "Input file path.")
+	fsig     = flag.Float64("fsig", 0.0, "Original signal frequency.")
+	fsam     = flag.Float64("fsam", 0.0, "Sampling frequency.")
+	dftlen   = flag.Int("dftlen", 1024, "Length of the DFT.")
+	loglevel = flag.String("loglevel", "info", "Logging level.")
 )
 
 func main() {
-	fmt.Println("Starting")
+	fmt.Println("Starting Fourier-ADC")
 	flag.Parse()
 
-	data := loadData(*input)
+	logLevel, err := log.ParseLevel(*loglevel)
+	if err != nil {
+		log.Fatalf("could not understand provided loglevel %v, %v", *loglevel, err)
+	}
+	log.Infof("Setting logging level %v", logLevel)
+	log.SetLevel(logLevel)
+
+	data, err := loadData(*input)
+	if err != nil {
+		log.Fatalf("could not load data from the file %s: err", *input, err)
+	}
 	fs := *fsam
 	freq := *fsig
 	fb := fs / float64(*dftlen)
@@ -298,12 +318,13 @@ func main() {
 	for _, v := range tableData {
 		table.Append(v)
 	}
+	fmt.Println("Input signal parameters:")
 	table.Render()
 
 	started := time.Now()
 	dft := DFT(data, *dftlen)
 	elapsed := time.Since(started)
-	fmt.Printf("Calculated DFT in %s.\n", elapsed)
+	log.Debugf("Calculated DFT in %s.\n", elapsed)
 
 	plotFileName := strings.Split(*input, ".")[0] + ".png"
 	plotDFT(dft, fb, true, plotFileName)
@@ -334,5 +355,6 @@ func main() {
 	for _, v := range tableData {
 		table.Append(v)
 	}
+	fmt.Println("ADC metrics:")
 	table.Render()
 }
