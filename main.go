@@ -296,7 +296,7 @@ func main() {
 
 	data, err := loadData(*input)
 	if err != nil {
-		log.Fatalf("could not load data from the file %s: err", *input, err)
+		log.Fatalf("could not load data from the file %s: %v", *input, err)
 	}
 	fs := *fsam
 	freq := *fsig
