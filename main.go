@@ -1,21 +1,22 @@
 package main
 
 import (
+	"encoding/csv"
+	"flag"
 	"fmt"
+	"math"
+	"math/cmplx"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/olekukonko/tablewriter"
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/plotter"
 	"gonum.org/v1/plot/plotutil"
 	"gonum.org/v1/plot/vg"
-	"encoding/csv"
-	"strconv"
-	"os"
-	"math/cmplx"
-	"math"
-	"sync"
-	"time"
-	"github.com/olekukonko/tablewriter"
-	"flag"
-	"strings"
 )
 
 func check(e error) {
@@ -24,7 +25,7 @@ func check(e error) {
 	}
 }
 
-func makeXYPoints(x [] float64, y []float64) plotter.XYs {
+func makeXYPoints(x []float64, y []float64) plotter.XYs {
 	pts := make(plotter.XYs, len(x))
 	for i := range pts {
 		pts[i].X = x[i]
@@ -33,7 +34,7 @@ func makeXYPoints(x [] float64, y []float64) plotter.XYs {
 	return pts
 }
 
-func plotXY(x [] float64, y []float64) *plot.Plot {
+func plotXY(x []float64, y []float64) *plot.Plot {
 
 	p, err := plot.New()
 	check(err)
@@ -45,7 +46,7 @@ func plotXY(x [] float64, y []float64) *plot.Plot {
 
 }
 
-func plotDFT(data [] complex128, fb float64, db bool, file string) {
+func plotDFT(data []complex128, fb float64, db bool, file string) {
 	amplitudes := make([]float64, len(data))
 	frequencies := make([]float64, len(data))
 
@@ -81,11 +82,10 @@ type DFTResult struct {
 
 func dftValue(c chan DFTResult, data []float64, k int, N int) {
 	defer wg.Done()
-	xk := complex(0, 0)
+	xk := 0i
 	for n, x := range data {
-		xValue := -2.0 * math.Pi * float64(k*n) / float64(N)
-		xCmplx := complex(0, xValue)
-		xk += complex(float64(x), 0) * cmplx.Exp(xCmplx)
+		xValue := complex(0, -2.0*math.Pi*float64(k*n)/float64(N))
+		xk += complex(float64(x), 0) * cmplx.Exp(xValue)
 	}
 	c <- DFTResult{k, xk}
 }
